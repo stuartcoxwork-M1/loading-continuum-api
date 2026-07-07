@@ -1,0 +1,322 @@
+openapi: 3.1.0
+
+info:
+  title: Loading Continuum Staging API
+  version: 1.0.0
+  summary: Load-based staging and progression for spinal pain rehabilitation.
+  description: |
+    The Loading Continuum stages spinal pain rehabilitation into three sequential
+    stages — Unload, Reload, Load — across seven biomechanical parameters (movement
+    range, movement plane, contraction type, body orientation, movement type, load
+    proximity, load type). Staging is determined by clinical response to controlled
+    loading rather than time, diagnosis, or imaging findings.
+
+    Framework publication: Cox S. The Loading Continuum: A Seven-Parameter Framework
+    for Staging Exercise Progression in Spinal Pain Rehabilitation. JMIR Preprints.
+    2026. doi:10.2196/104890
+
+    COMPOSITION: This API composes with the SpinalRisk Triage API. Staging requires a
+    passed safety screen — either a SpinalRisk overall outcome of 'conservative' or
+    'monitor', or an explicit clinician attestation that red-flag screening was
+    completed and cleared. Any higher SpinalRisk tier blocks staging and returns a
+    referral instruction.
+
+    CLINICAL SAFETY: Clinical decision support for exercise progression only. Not a
+    diagnosis; does not replace clinical judgement. Adults 18+. Regulatory note: a
+    publicly callable clinical endpoint may fall within Therapeutic Goods
+    Administration (TGA) software-as-a-medical-device scope; formal review precedes
+    any public/health-system deployment.
+
+    INTELLECTUAL PROPERTY: The published framework (stages, parameters, staging
+    principles) is openly available via the preprint above. The operational decision
+    layer — provocation thresholds, assessment-routing rules, stabilisation and wean
+    criteria, gate mechanics, and progression ordering logic — is proprietary to
+    Movement First International and is intentionally NOT disclosed in this interface
+    specification. This document defines the callable contract (inputs, outputs,
+    endpoints) only.
+  contact:
+    name: Stuart Cox, B.Phty, MPH — Movement First International
+    email: contact@movementfirst.org
+    url: https://loadingcontinuum.com
+  license:
+    name: Proprietary — © 2026 Movement First International. All rights reserved.
+    identifier: LicenseRef-Proprietary
+  x-orcid: https://orcid.org/0009-0004-6096-9718
+  x-framework-doi: 10.2196/104890
+
+servers:
+  - url: http://localhost:8001
+    description: Local development (v1.0 runs local/private until TGA posture is confirmed).
+
+tags:
+  - name: staging
+    description: Assign a Loading Continuum stage and next progression.
+  - name: education
+    description: Plain-language patient explanation of a stage.
+  - name: system
+    description: Service health.
+
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Service health check.
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  spec_version: { type: string }
+                required: [status]
+
+  /v1/stage:
+    post:
+      tags: [staging]
+      operationId: stageAssessment
+      summary: Assign a Loading Continuum stage and next parameter progression.
+      description: |
+        Accepts region, safety-screen evidence, subjective findings, and per-direction
+        objective loading responses; returns the assigned stage, stabilisation
+        indication, directional preference, fear-avoidance gate status, next parameter
+        progression, regression advice where triggered, a transparent decision path,
+        and a mandatory clinical disclaimer. Deterministic: identical input always
+        yields identical output.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StagingRequest"
+      responses:
+        "200":
+          description: Staging result (or a safety-gate block with referral instruction).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StagingResponse"
+        "400":
+          description: Invalid input.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/education-brief:
+    post:
+      tags: [education]
+      operationId: educationBrief
+      summary: Generate a plain-language patient explanation of a stage.
+      description: |
+        Returns a patient-facing narrative for the given stage and region — the
+        constructive middle path between an alarming diagnosis and a dismissive
+        all-clear — optionally reflecting stabilisation, directional preference,
+        and a held fear-avoidance gate. Always ships with the clinical disclaimer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducationRequest"
+      responses:
+        "200":
+          description: Patient education brief.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [brief, disclaimer, spec_version]
+                properties:
+                  brief: { type: string }
+                  disclaimer: { type: string }
+                  spec_version: { type: string }
+        "400":
+          description: Invalid input.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+
+    Region:
+      type: string
+      enum: [cervical, thoracic, lumbar]
+
+    SpinalRiskOutcome:
+      type: string
+      enum: [conservative, monitor, medical_review, imaging, urgent, emergency]
+      description: Overall outcome tier from the SpinalRisk Triage API, when composed.
+
+    ObjectiveTest:
+      type: object
+      additionalProperties: false
+      required: [position, response]
+      properties:
+        position:
+          type: string
+          enum: [unloaded, loaded]
+          description: Unloaded (horizontal) baseline testing or loaded (seated/standing) testing.
+        direction:
+          type: string
+          description: Movement direction tested (e.g. flexion, extension, rotation_left). Captured per direction so asymmetric relieving/provoking patterns are preserved.
+        response:
+          type: string
+          enum: [relieves_improves, neutral, provokes]
+          description: Clinical loading response. The criteria distinguishing these categories are defined in the tool's private clinical documentation.
+
+    OutcomeMeasures:
+      type: object
+      additionalProperties: false
+      description: Baseline and current functional outcome measures. NDI for cervical, ODI for lumbar, PSFS universal.
+      properties:
+        ndi_baseline: { type: [number, "null"] }
+        ndi_current: { type: [number, "null"] }
+        odi_baseline: { type: [number, "null"] }
+        odi_current: { type: [number, "null"] }
+        psfs_baseline: { type: [number, "null"] }
+        psfs_current: { type: [number, "null"] }
+
+    StagingRequest:
+      type: object
+      additionalProperties: false
+      required: [region]
+      properties:
+        region:
+          $ref: "#/components/schemas/Region"
+        spinalrisk_overall_outcome:
+          $ref: "#/components/schemas/SpinalRiskOutcome"
+        clinician_attestation:
+          type: boolean
+          default: false
+          description: Explicit clinician attestation that red-flag screening was completed and cleared. Either this or a cleared SpinalRisk outcome is required.
+        pain_nrs:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 10
+        irritability:
+          type: [string, "null"]
+          enum: [minutes, hours, days, null]
+          description: Time for symptoms to settle after provocation. Governs assessment routing per the tool's private clinical documentation.
+        all_movements_limited:
+          type: boolean
+          default: false
+          description: Patient reports all movements are limited.
+        directional_preference:
+          type: [object, "null"]
+          description: Known relieving direction, if already identified. Otherwise derived from per-direction test responses.
+        tsk11_score:
+          type: [integer, "null"]
+          minimum: 11
+          maximum: 44
+          description: Tampa Scale for Kinesiophobia (11-item), if administered.
+        clinician_flagged_fear_avoidance:
+          type: boolean
+          default: false
+        radicular_or_referred_symptoms:
+          type: boolean
+          default: false
+        outcome_measures:
+          $ref: "#/components/schemas/OutcomeMeasures"
+        clinician_confirms_reduced_threat:
+          type: boolean
+          default: false
+        response_since_last_session:
+          type: [string, "null"]
+          enum: [improved, unchanged, worsened_settled_within_48h, worsened_not_settled_48h, null]
+        current_stage:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 3
+          description: Current stage, for follow-up and regression context.
+        last_loading_response:
+          type: [string, "null"]
+          enum: [relieves_improves, neutral, null]
+          description: Response to the last prescribed loading, governing progression breadth.
+        stabilisation_in_place:
+          type: boolean
+          default: false
+        stabilisation_wean_trigger_met:
+          type: boolean
+          default: false
+          description: Clinician confirms the stabilisation wean criteria are met. The criteria are defined in the tool's private clinical documentation.
+        full_functional_ranges:
+          type: boolean
+          default: false
+        tests:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectiveTest" }
+
+    StagingResponse:
+      type: object
+      additionalProperties: false
+      required: [blocked, disclaimer, spec_version]
+      properties:
+        blocked:
+          type: boolean
+          description: True when the safety gate blocks staging; a referral instruction is supplied in reason.
+        reason:
+          type: [string, "null"]
+        stage:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 3
+        stage_name:
+          type: [string, "null"]
+          enum: [unload_stabilise, reload, load, null]
+        stabilisation_indicated: { type: [boolean, "null"] }
+        stabilisation_method_note: { type: [string, "null"] }
+        stabilisation_wean:
+          type: [array, "null"]
+          items: { type: string }
+        assessment_scope:
+          type: [string, "null"]
+          enum: [full, unloaded_only, stabilisation_review, null]
+        directional_preference: { type: [object, "null"] }
+        parameter_position_vector:
+          type: [object, "null"]
+          description: Current level for each of the seven parameters.
+        next_progression: { type: [string, "null"] }
+        advancing_parameters:
+          type: [array, "null"]
+          items: { type: string }
+        fear_avoidance_gate:
+          type: [object, "null"]
+          description: Gate status (open/held/released) with recommendations and release criteria when held.
+        neurodynamic_recommendation: { type: [string, "null"] }
+        thoracic_considerations:
+          type: [array, "null"]
+          items: { type: string }
+        regression_advice:
+          type: [array, "null"]
+          items: { type: string }
+        decision_path:
+          type: array
+          items: { type: string }
+          description: The rules that fired and the inputs that drove them — every response is traceable.
+        disclaimer: { type: string }
+        spec_version: { type: string }
+
+    EducationRequest:
+      type: object
+      additionalProperties: false
+      required: [stage, region]
+      properties:
+        stage: { type: integer, minimum: 1, maximum: 3 }
+        region: { $ref: "#/components/schemas/Region" }
+        stabilisation_indicated: { type: boolean, default: false }
+        gate_held: { type: boolean, default: false }
+        directional_preference: { type: [object, "null"] }
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
