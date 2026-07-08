@@ -54,7 +54,7 @@ not a single fused system.
 
 **This interface specification:**
 > Cox S. Loading Continuum Staging API: Open Interface Specification v1.0. 2026.
-> doi: [ZENODO DOI — insert after Step 3]
+> doi:[10.5281/zenodo.21233713](https://doi.org/10.5281/zenodo.21233713)
 
 ## License
 
